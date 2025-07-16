@@ -30,9 +30,6 @@ type zigVersion struct {
 	dev   bool
 }
 
-var repoPathBuilds = "/tmp/zig_repo/builds"
-var repoPathRelease = "/tmp/zig_repo/release"
-
 type page struct {
 	Data []byte
 }
@@ -46,14 +43,20 @@ var pool = sync.Pool{
 }
 
 var (
-	address string
-	port    int
+	mirrorPath string
+	address    string
+	port       int
+)
+var (
+	repoPathBuilds  = "/tmp/zig_repo/builds"
+	repoPathRelease = "/tmp/zig_repo/release"
 )
 
 func init() {
 	// Only log the warning severity or above.
 	log.SetLevel(log.DebugLevel)
 
+	flag.StringVar(&mirrorPath, "mirror-path", "/tmp/zig_repo", "base mirror path")
 	flag.StringVar(&address, "address", "localhost", "listen address")
 	flag.IntVar(&port, "port", 5000, "listen port")
 }
@@ -94,7 +97,7 @@ func main() {
 	})
 
 	listenAddr := fmt.Sprintf("%s:%d", address, port)
-	log.Infof("serving request at: %s", listenAddr)
+	log.Infof("serving request at: %s, repo path: %s", listenAddr, mirrorPath)
 	log.Fatal(http.ListenAndServe(listenAddr, mux))
 }
 
@@ -272,6 +275,9 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 }
 
 func buildDirRepo() {
+	repoPathBuilds = path.Join(mirrorPath, "/builds")
+	repoPathRelease = path.Join(mirrorPath, "/release")
+
 	if _, err := os.Stat(repoPathBuilds); errors.Is(err, os.ErrNotExist) {
 		// path/to/whatever does not exist
 		err = os.MkdirAll(repoPathBuilds, 0700)
