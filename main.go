@@ -48,8 +48,10 @@ var (
 	port       int
 )
 var (
-	repoPathBuilds  = "/tmp/zig_repo/builds"
-	repoPathRelease = "/tmp/zig_repo/release"
+	repoBase        = "/tmp/zig_repo/"
+	repoPathBuilds  = repoBase + "/builds"
+	repoPathRelease = repoBase + "/release"
+	repoPathTmp     = repoBase + "/tmp"
 )
 
 func init() {
@@ -241,7 +243,7 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 		w.WriteHeader(http.StatusNotFound)
 		log.Warnf("downloading file failed due to: %s", resp.Status)
 	}
-	tmpFile, err := os.CreateTemp(os.TempDir(), "zigmirror-")
+	tmpFile, err := os.CreateTemp(repoPathTmp, "f-*")
 	if err != nil {
 		return err
 	}
@@ -281,7 +283,7 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 func buildDirRepo() {
 	repoPathBuilds = path.Join(mirrorPath, "/builds")
 	repoPathRelease = path.Join(mirrorPath, "/release")
-
+	repoPathTmp = path.Join(mirrorPath, "/tmp")
 	if _, err := os.Stat(repoPathBuilds); errors.Is(err, os.ErrNotExist) {
 		// path/to/whatever does not exist
 		err = os.MkdirAll(repoPathBuilds, 0700)
