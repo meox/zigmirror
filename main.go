@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -233,7 +234,21 @@ func serveFile(filePath string, w http.ResponseWriter) error {
 }
 
 func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second, // Connection timeout
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ResponseHeaderTimeout: 10 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			IdleConnTimeout:       20 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+		},
+		Timeout: 60 * time.Second, // Overall request timeout
+	}
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
