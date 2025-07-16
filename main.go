@@ -281,21 +281,22 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 }
 
 func buildDirRepo() {
-	repoPathBuilds = path.Join(mirrorPath, "/builds")
-	repoPathRelease = path.Join(mirrorPath, "/release")
-	repoPathTmp = path.Join(mirrorPath, "/tmp")
-	if _, err := os.Stat(repoPathBuilds); errors.Is(err, os.ErrNotExist) {
-		// path/to/whatever does not exist
-		err = os.MkdirAll(repoPathBuilds, 0700)
-		if err != nil {
-			log.Fatalf("Cannot create repo path: %s, reason: %v", repoPathBuilds, err)
-		}
+	repoPathBuilds = path.Join(mirrorPath, "builds")
+	repoPathRelease = path.Join(mirrorPath, "release")
+	repoPathTmp = path.Join(mirrorPath, "tmp")
+
+	paths := []string{
+		repoPathBuilds,
+		repoPathRelease,
+		repoPathTmp,
 	}
-	if _, err := os.Stat(repoPathRelease); errors.Is(err, os.ErrNotExist) {
-		// path/to/whatever does not exist
-		err = os.MkdirAll(repoPathRelease, 0700)
-		if err != nil {
-			log.Fatalf("Cannot create repo path: %s, reason: %v", repoPathRelease, err)
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+			err = os.MkdirAll(p, 0700)
+			if err != nil {
+				log.Fatalf("Cannot create repo path: %s, reason: %v", p, err)
+			}
 		}
 	}
 }
