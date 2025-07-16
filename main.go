@@ -77,8 +77,8 @@ func main() {
 
 		version, err := getVersion(fileName)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
 			log.Warnf("request %s with a bad version: %v", fileName, err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
