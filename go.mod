@@ -1,4 +1,4 @@
-module zigmirror.meox.dev
+module zigmirror
 
 go 1.24.5
 

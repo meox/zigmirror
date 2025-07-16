@@ -15,8 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"zigmirror/registry"
+
 	log "github.com/sirupsen/logrus"
-	"zigmirror.meox.dev/registry"
 )
 
 const ZigMirrorRelease = "https://ziglang.org/download/"
