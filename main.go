@@ -143,6 +143,7 @@ func handleFileRequest(reg *registry.SafeDownload, fileName string, v zigVersion
 		err := downloadServe(url, filePath, w)
 		if err != nil {
 			log.Errorf("cannot download: %s, %v", fileName, err)
+			return
 		}
 		log.Debugf("file %s served!", fileName)
 	} else {
@@ -236,41 +237,44 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 		return err
 	}
 
-	if resp.StatusCode == http.StatusOK {
-		tmpFile, err := os.CreateTemp(os.TempDir(), "zigmirror-")
-		if err != nil {
-			return err
-		}
-
-		buff := pool.Get().(*page)
-		defer pool.Put(buff)
-
-		r := io.TeeReader(resp.Body, w)
-		_, errCopy := io.CopyBuffer(tmpFile, r, buff.Data)
-		if errCopy == nil {
-			err = tmpFile.Sync()
-			if err != nil {
-				log.Debugf("cannot sync file to disk")
-			}
-		}
-
-		err = tmpFile.Close()
-		if err != nil {
-			log.Debugf("cannot close file to disk")
-		}
-
-		if errCopy != nil {
-			os.Remove(tmpFile.Name())
-			return errCopy
-		}
-
-		// rename the file
-		log.Debugf("renaming: %s -> %s", tmpFile.Name(), dstFile)
-		return os.Rename(tmpFile.Name(), dstFile)
-	} else {
+	if resp.StatusCode != http.StatusOK {
 		w.WriteHeader(http.StatusNotFound)
 		log.Warnf("downloading file failed due to: %s", resp.Status)
 	}
+	tmpFile, err := os.CreateTemp(os.TempDir(), "zigmirror-")
+	if err != nil {
+		return err
+	}
+
+	buff := pool.Get().(*page)
+	defer pool.Put(buff)
+
+	r := io.TeeReader(resp.Body, w)
+	_, errCopy := io.CopyBuffer(tmpFile, r, buff.Data)
+	if errCopy == nil {
+		err = tmpFile.Sync()
+		if err != nil {
+			log.Debugf("cannot sync file to disk")
+		}
+	}
+
+	err = tmpFile.Close()
+	if err != nil {
+		log.Debugf("cannot close file to disk")
+	}
+
+	if errCopy != nil {
+		os.Remove(tmpFile.Name())
+		return errCopy
+	}
+
+	// rename the file
+	err = os.Rename(tmpFile.Name(), dstFile)
+	if err != nil {
+		log.Errorf("cannot rename: %s -> %s, reason: %v", tmpFile.Name(), dstFile, err)
+		return err
+	}
+	log.Infof("renamed: %s -> %s", tmpFile.Name(), dstFile)
 	return nil
 }
 
