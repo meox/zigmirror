@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const PubKey = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 const ZigMirrorRelease = "https://ziglang.org/download/"
 const ZigMirrorBuilds = "https://ziglang.org/builds/"
 
@@ -109,7 +110,7 @@ func handleFileRequest(reg *registry.SafeDownload, fileName string, v zigVersion
 	var url string
 
 	hash := getSHA256(fileName)
-	log.Debugf("request %s: (sha256=%s, version: %d.%d.%d) (dev: %t)\n", fileName, hash, v.maj, v.min, v.patch, v.dev)
+	log.Debugf("request %s: (sha256=%s, version: %d.%d.%d) (dev: %t)", fileName, hash, v.maj, v.min, v.patch, v.dev)
 
 	if v.dev {
 		url = fmt.Sprintf("%s/%s", ZigMirrorBuilds, fileName)
@@ -254,10 +255,12 @@ func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
 		return err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		w.WriteHeader(http.StatusNotFound)
+	if resp.StatusCode == http.StatusNotFound {
+		w.WriteHeader(resp.StatusCode)
 		log.Warnf("downloading file failed due to: %s", resp.Status)
+		return fmt.Errorf("%v not found", url)
 	}
+
 	tmpFile, err := os.CreateTemp(repoPathTmp, "f-*")
 	if err != nil {
 		return err
