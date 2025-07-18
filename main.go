@@ -16,14 +16,15 @@ import (
 	"sync"
 	"time"
 
+	"log"
 	"zigmirror/registry"
 
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 const PubKey = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
-const ZigMirrorRelease = "https://ziglang.org/download/"
-const ZigMirrorBuilds = "https://ziglang.org/builds/"
+const ZigMirrorRelease = "https://ziglang.org/download"
+const ZigMirrorBuilds = "https://ziglang.org/builds"
 
 type zigVersion struct {
 	maj   uint32
@@ -57,15 +58,18 @@ var (
 )
 
 func init() {
-	// Only log the warning severity or above.
-	log.SetLevel(log.DebugLevel)
-
 	flag.StringVar(&mirrorPath, "mirror-path", "/tmp/zig_repo", "base mirror path")
 	flag.StringVar(&address, "address", "localhost", "listen address")
 	flag.IntVar(&port, "port", 5000, "listen port")
 }
 
 func main() {
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("cannot create logger: %v", err)
+	}
+	defer logger.Sync() // flushes buffer, if any
+
 	flag.Parse()
 
 	buildDirRepo()
@@ -75,16 +79,20 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{filename}", func(w http.ResponseWriter, r *http.Request) {
 		fileName := r.PathValue("filename")
+		sugar := logger.Sugar().With("filename", fileName)
+
+		defer sugar.Sync()
+
 		if !validFormat(fileName) {
 			// return 404
-			log.Warnf("reject request for invalid format: filename = %s", fileName)
+			sugar.Warn("reject request for invalid format")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
 		version, err := getVersion(fileName)
 		if err != nil {
-			log.Warnf("request %s with a bad version: %v", fileName, err)
+			sugar.Warnf("request with a bad version: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -92,25 +100,25 @@ func main() {
 		// check older than 0.5.0
 		if version.maj == 0 && (version.min < 5 || (version.min == 5 && version.patch == 0)) {
 			// too old
-			log.Warnf("request discarded because the file is too old: %s", fileName)
+			sugar.Warn("request discarded because the file is too old")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
-		handleFileRequest(reg, fileName, version, w)
+		handleFileRequest(sugar, reg, fileName, version, w)
 	})
 
 	listenAddr := fmt.Sprintf("%s:%d", address, port)
-	log.Infof("serving request at: %s, repo path: %s", listenAddr, mirrorPath)
+	sugar := logger.Sugar()
+	sugar.Infof("serving request at: %s, repo path: %s", listenAddr, mirrorPath)
 	log.Fatal(http.ListenAndServe(listenAddr, mux))
 }
 
-func handleFileRequest(reg *registry.SafeDownload, fileName string, v zigVersion, w http.ResponseWriter) {
+func handleFileRequest(sugar *zap.SugaredLogger, reg *registry.SafeDownload, fileName string, v zigVersion, w http.ResponseWriter) {
 	var filePath string
 	var url string
 
 	hash := getSHA256(fileName)
-	log.Debugf("request %s: (sha256=%s, version: %d.%d.%d) (dev: %t)", fileName, hash, v.maj, v.min, v.patch, v.dev)
 
 	if v.dev {
 		url = fmt.Sprintf("%s/%s", ZigMirrorBuilds, fileName)
@@ -121,37 +129,44 @@ func handleFileRequest(reg *registry.SafeDownload, fileName string, v zigVersion
 	}
 	filePath = path.Join(filePath, hash)
 
+	sugar = sugar.With(
+		"file_path", filePath,
+		"sha256", hash,
+		"version", fmt.Sprintf("%d.%d.%d", v.maj, v.min, v.patch),
+		"dev", v.dev,
+	)
+
 	// check if the file is in the repo
 	if _, err := os.Stat(filePath); err == nil {
-		log.Debugf("file %s present", filePath)
+		t_now := time.Now()
 
 		// serve the file
 		err = serveFile(filePath, w)
 		if err != nil {
-			log.Errorf("cannot serve the file: %v", err)
+			sugar.Errorf("cannot serve the file: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		log.Debugf("file %s served!", fileName)
+		sugar.Infow("file served!", "present", true, "elapsed_ms", time.Since(t_now).Milliseconds())
 	} else if errors.Is(err, os.ErrNotExist) {
-		log.Debugf("file not present, downloading: %s", fileName)
+		sugarU := sugar.With("url", url, "present", false)
 
 		if !reg.StartDownload(fileName) {
-			log.Warnf("downloading in progress for file: %s", fileName)
+			sugarU.Warn("downloading from main mirror already in progress")
 			w.Header().Set("Retry-After", "10")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-
 		defer reg.DownloadComplete(fileName)
 
 		// download and serve
-		err := downloadServe(url, filePath, w)
+		err := downloadServe(sugarU, url, filePath, w)
 		if err != nil {
-			log.Errorf("cannot download: %s, %v", fileName, err)
+			sugarU.Errorf("cannot download: %v", err)
 			return
 		}
-		log.Debugf("file %s served!", fileName)
 	} else {
-		log.Errorf("reject request for error: %v", err)
+		sugar.Errorf("reject request for error: %v", err)
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
@@ -176,6 +191,115 @@ func validFormat(fileName string) bool {
 		}
 	}
 	return false
+}
+
+func serveFile(filePath string, w http.ResponseWriter) error {
+	fd, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	w.WriteHeader(http.StatusOK)
+
+	buff := pool.Get().(*page)
+	defer pool.Put(buff)
+
+	_, err = io.CopyBuffer(w, fd, buff.Data)
+	return err
+}
+
+func downloadServe(sugar *zap.SugaredLogger, url string, dstFile string, w http.ResponseWriter) error {
+	t_now := time.Now()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second, // Connection timeout
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ResponseHeaderTimeout: 10 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			IdleConnTimeout:       20 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+		},
+		Timeout: 60 * time.Second, // Overall request timeout
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		w.WriteHeader(resp.StatusCode)
+		sugar.Warnf("downloading file failed due to: %s", resp.Status)
+		return fmt.Errorf("%v not found", url)
+	}
+
+	tmpFile, err := os.CreateTemp(repoPathTmp, "f-*")
+	if err != nil {
+		return err
+	}
+	sugar = sugar.With("tmp_file", tmpFile.Name(), "dest_file", dstFile)
+
+	buff := pool.Get().(*page)
+	defer pool.Put(buff)
+
+	r := io.TeeReader(resp.Body, w)
+	written, errCopy := io.CopyBuffer(tmpFile, r, buff.Data)
+	if errCopy == nil {
+		err = tmpFile.Sync()
+		if err != nil {
+			sugar = sugar.With("sync_error", true)
+		}
+	}
+
+	err = tmpFile.Close()
+	if err != nil {
+		sugar = sugar.With("close_error", true)
+	}
+
+	if errCopy != nil {
+		os.Remove(tmpFile.Name())
+		return errCopy
+	}
+
+	// rename the file
+	err = os.Rename(tmpFile.Name(), dstFile)
+	if err != nil {
+		sugar.Errorf("cannot rename: %s -> %s, reason: %v", tmpFile.Name(), dstFile, err)
+		return err
+	}
+
+	sugar.With(
+		"renamed", true,
+		"written", written,
+		"elapsed_ms", time.Since(t_now).Milliseconds(),
+	).Info("file served!")
+	return nil
+}
+
+func buildDirRepo() {
+	repoPathBuilds = path.Join(mirrorPath, "builds")
+	repoPathRelease = path.Join(mirrorPath, "release")
+	repoPathTmp = path.Join(mirrorPath, "tmp")
+
+	paths := []string{
+		repoPathBuilds,
+		repoPathRelease,
+		repoPathTmp,
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+			err = os.MkdirAll(p, 0700)
+			if err != nil {
+				log.Fatalf("Cannot create repo path: %s, reason: %v", p, err)
+			}
+		}
+	}
 }
 
 func getVersion(fileName string) (zigVersion, error) {
@@ -217,104 +341,4 @@ func getVersion(fileName string) (zigVersion, error) {
 		patch: uint32(patch),
 		dev:   isDev,
 	}, nil
-}
-
-func serveFile(filePath string, w http.ResponseWriter) error {
-	w.WriteHeader(http.StatusOK)
-	fd, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer fd.Close()
-
-	buff := pool.Get().(*page)
-	defer pool.Put(buff)
-
-	_, err = io.CopyBuffer(w, fd, buff.Data)
-	return err
-}
-
-func downloadServe(url string, dstFile string, w http.ResponseWriter) error {
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   10 * time.Second, // Connection timeout
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ResponseHeaderTimeout: 10 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			IdleConnTimeout:       20 * time.Second,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   10,
-		},
-		Timeout: 60 * time.Second, // Overall request timeout
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		w.WriteHeader(resp.StatusCode)
-		log.Warnf("downloading file failed due to: %s", resp.Status)
-		return fmt.Errorf("%v not found", url)
-	}
-
-	tmpFile, err := os.CreateTemp(repoPathTmp, "f-*")
-	if err != nil {
-		return err
-	}
-
-	buff := pool.Get().(*page)
-	defer pool.Put(buff)
-
-	r := io.TeeReader(resp.Body, w)
-	_, errCopy := io.CopyBuffer(tmpFile, r, buff.Data)
-	if errCopy == nil {
-		err = tmpFile.Sync()
-		if err != nil {
-			log.Debugf("cannot sync file to disk")
-		}
-	}
-
-	err = tmpFile.Close()
-	if err != nil {
-		log.Debugf("cannot close file to disk")
-	}
-
-	if errCopy != nil {
-		os.Remove(tmpFile.Name())
-		return errCopy
-	}
-
-	// rename the file
-	err = os.Rename(tmpFile.Name(), dstFile)
-	if err != nil {
-		log.Errorf("cannot rename: %s -> %s, reason: %v", tmpFile.Name(), dstFile, err)
-		return err
-	}
-	log.Infof("renamed: %s -> %s", tmpFile.Name(), dstFile)
-	return nil
-}
-
-func buildDirRepo() {
-	repoPathBuilds = path.Join(mirrorPath, "builds")
-	repoPathRelease = path.Join(mirrorPath, "release")
-	repoPathTmp = path.Join(mirrorPath, "tmp")
-
-	paths := []string{
-		repoPathBuilds,
-		repoPathRelease,
-		repoPathTmp,
-	}
-
-	for _, p := range paths {
-		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-			err = os.MkdirAll(p, 0700)
-			if err != nil {
-				log.Fatalf("Cannot create repo path: %s, reason: %v", p, err)
-			}
-		}
-	}
 }
