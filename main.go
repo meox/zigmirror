@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"embed"
-	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
