@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto/sha256"
+	"embed"
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +27,9 @@ import (
 const PubKey = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 const ZigMirrorRelease = "https://ziglang.org/download"
 const ZigMirrorBuilds = "https://ziglang.org/builds"
+
+//go:embed favicon.ico
+var favicon embed.FS
 
 type zigVersion struct {
 	maj   uint32
@@ -77,6 +82,7 @@ func main() {
 	reg := registry.Init()
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /favicon.ico", http.FileServer(http.FS(favicon)))
 	mux.HandleFunc("GET /{filename}", func(w http.ResponseWriter, r *http.Request) {
 		fileName := r.PathValue("filename")
 		sugar := logger.Sugar().With("filename", fileName)
