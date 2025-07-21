@@ -88,6 +88,12 @@ func main() {
 
 		defer sugar.Sync()
 
+		if !strings.HasPrefix(fileName, "zig") {
+			// return 404
+			sugar.Warn("reject request for invalid name")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if !validFormat(fileName) {
 			// return 404
 			sugar.Warn("reject request for invalid format")
