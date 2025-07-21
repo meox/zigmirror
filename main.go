@@ -85,10 +85,13 @@ func main() {
 	mux.HandleFunc("GET /{filename}", func(w http.ResponseWriter, r *http.Request) {
 		fileName := r.PathValue("filename")
 		source := r.URL.Query().Get("source")
+		fw_ip := r.Header.Get("X-Forwarded-For")
+
 		sugar := logger.Sugar().With(
 			"filename", fileName,
 			"remote_addr", r.RemoteAddr,
 			"source", source,
+			"fw_ip", fw_ip,
 		)
 		defer sugar.Sync()
 
@@ -159,7 +162,6 @@ func handleFileRequest(sugar *zap.SugaredLogger, reg *registry.SafeDownload, fil
 		err = serveFile(filePath, w)
 		if err != nil {
 			sugar.Errorf("cannot serve the file: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		sugar.Infow("file served!", "present", true, "elapsed_ms", time.Since(t_now).Milliseconds())
