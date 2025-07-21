@@ -84,8 +84,12 @@ func main() {
 	mux.Handle("GET /favicon.ico", http.FileServer(http.FS(favicon)))
 	mux.HandleFunc("GET /{filename}", func(w http.ResponseWriter, r *http.Request) {
 		fileName := r.PathValue("filename")
-		sugar := logger.Sugar().With("filename", fileName)
-
+		source := r.URL.Query().Get("source")
+		sugar := logger.Sugar().With(
+			"filename", fileName,
+			"remote_addr", r.RemoteAddr,
+			"source", source,
+		)
 		defer sugar.Sync()
 
 		if !strings.HasPrefix(fileName, "zig") {
