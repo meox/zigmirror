@@ -119,7 +119,7 @@ func main() {
 		// Reasonable version limits
 		if version.maj > 99 || version.min > 999 || version.patch > 9999 {
 			// bad version
-			sugar.Warn("invalid version: unreasonable version numbers: %d.%d.%d", version.maj, version.min, version.patch)
+			sugar.Warnf("invalid version: unreasonable version numbers: %d.%d.%d", version.maj, version.min, version.patch)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
