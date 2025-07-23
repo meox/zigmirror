@@ -95,12 +95,13 @@ func main() {
 		)
 		defer sugar.Sync()
 
-		if !strings.HasPrefix(fileName, "zig") {
+		if !validFileName(fileName) {
 			// return 404
 			sugar.Warn("reject request for invalid name")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+
 		if !validFormat(fileName) {
 			// return 404
 			sugar.Warn("reject request for invalid format")
@@ -112,6 +113,14 @@ func main() {
 		if err != nil {
 			sugar.Warnf("request with a bad version: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Reasonable version limits
+		if version.maj > 99 || version.min > 999 || version.patch > 9999 {
+			// bad version
+			sugar.Warn("invalid version: unreasonable version numbers: %d.%d.%d", version.maj, version.min, version.patch)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
@@ -358,4 +367,16 @@ func getVersion(fileName string) (zigVersion, error) {
 		patch: uint32(patch),
 		dev:   isDev,
 	}, nil
+}
+
+func validFileName(fileName string) bool {
+	if !strings.HasPrefix(fileName, "zig") {
+		return false
+	}
+
+	if strings.Contains(fileName, "/") || strings.Contains(fileName, "..") {
+		return false
+	}
+
+	return true
 }
