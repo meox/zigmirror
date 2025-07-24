@@ -1,19 +1,19 @@
-package registry
+package mlock
 
 import "sync"
 
-type SafeDownload struct {
+type MLock struct {
 	m sync.Mutex
 	v map[string]bool
 }
 
-func Init() *SafeDownload {
-	return &SafeDownload{
+func Init() *MLock {
+	return &MLock{
 		v: make(map[string]bool),
 	}
 }
 
-func (s *SafeDownload) StartDownload(fileName string) bool {
+func (s *MLock) StartDownload(fileName string) bool {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -27,7 +27,7 @@ func (s *SafeDownload) StartDownload(fileName string) bool {
 	return true
 }
 
-func (s *SafeDownload) DownloadComplete(fileName string) {
+func (s *MLock) DownloadComplete(fileName string) {
 	s.m.Lock()
 	defer s.m.Unlock()
 

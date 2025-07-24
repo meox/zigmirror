@@ -6,7 +6,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -16,11 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"log"
-	"zigmirror/registry"
-
-	"go.uber.org/zap"
+	"zigmirror/mlock"
 )
 
 const PubKey = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
@@ -78,7 +76,7 @@ func main() {
 
 	buildDirRepo()
 
-	reg := registry.Init()
+	reg := mlock.Init()
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /favicon.ico", http.FileServer(http.FS(favicon)))
@@ -141,7 +139,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(listenAddr, mux))
 }
 
-func handleFileRequest(sugar *zap.SugaredLogger, reg *registry.SafeDownload, fileName string, v zigVersion, w http.ResponseWriter) {
+func handleFileRequest(sugar *zap.SugaredLogger, reg *mlock.MLock, fileName string, v zigVersion, w http.ResponseWriter) {
 	var filePath string
 	var url string
 
