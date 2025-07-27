@@ -13,7 +13,7 @@ func Init() *MLock {
 	}
 }
 
-func (s *MLock) StartDownload(fileName string) bool {
+func (s *MLock) Download(fileName string) bool {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -27,6 +27,17 @@ func (s *MLock) StartDownload(fileName string) bool {
 	return true
 }
 
+func (s *MLock) Downloaded(fileName string) bool {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	_, present := s.v[fileName]
+	if !present {
+		return true
+	}
+
+	return true
+}
 func (s *MLock) DownloadComplete(fileName string) {
 	s.m.Lock()
 	defer s.m.Unlock()

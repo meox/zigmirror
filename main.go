@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go.uber.org/zap"
 	"io"
 	"log"
 	"net"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"time"
 	"zigmirror/mlock"
+
+	"go.uber.org/zap"
 )
 
 const PubKey = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
@@ -175,10 +176,26 @@ func handleFileRequest(sugar *zap.SugaredLogger, reg *mlock.MLock, fileName stri
 	} else if errors.Is(err, os.ErrNotExist) {
 		sugarU := sugar.With("url", url, "present", false)
 
-		if !reg.StartDownload(fileName) {
-			sugarU.Warn("downloading from main mirror already in progress")
-			w.Header().Set("Retry-After", "10")
-			w.WriteHeader(http.StatusServiceUnavailable)
+		if !reg.Download(fileName) {
+			// wait
+			t_wait := time.Now()
+			for !reg.Downloaded(fileName) {
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			// serve
+			t_now := time.Now()
+			err = serveFile(filePath, w)
+			if err != nil {
+				sugar.Errorf("cannot serve the file: %v", err)
+				return
+			}
+			sugarU.Infow(
+				"file served!",
+				"present", true,
+				"elapsed_ms", time.Since(t_now).Milliseconds(),
+				"wait_ms", t_now.Sub(t_wait).Milliseconds(),
+			)
 			return
 		}
 		defer reg.DownloadComplete(fileName)
