@@ -32,12 +32,9 @@ func (s *MLock) Downloaded(fileName string) bool {
 	defer s.m.Unlock()
 
 	_, present := s.v[fileName]
-	if !present {
-		return true
-	}
-
-	return true
+	return !present
 }
+
 func (s *MLock) DownloadComplete(fileName string) {
 	s.m.Lock()
 	defer s.m.Unlock()
